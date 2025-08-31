@@ -1,23 +1,23 @@
-# app.py
 import streamlit as st
 import sqlite3
 import os
-from datetime import datetime, date
-import pandas as pd
-import plotly.express as px
-import io
+from datetime import datetime
+import matplotlib.pyplot as plt
 
-# -----------------------
-DB_PATH = "police_rms.db"
-PHOTOS_DIR = "photos"
+# =========================
+# DB SETUP
+# =========================
+DB_FILE = "police_rms.db"
 
-# -----------------------
+def get_connection():
+    return sqlite3.connect(DB_FILE)
+
 def init_db():
-    os.makedirs(PHOTOS_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = get_connection()
     c = conn.cursor()
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS suspects (
+
+    # Suspects table
+    c.execute('''CREATE TABLE IF NOT EXISTS suspects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         dob TEXT,
@@ -25,361 +25,248 @@ def init_db():
         address TEXT,
         phone TEXT,
         occupation TEXT,
-        photo_front TEXT,
-        photo_left TEXT,
-        photo_right TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS crimes (
+    )''')
+
+    # Crimes table
+    c.execute('''CREATE TABLE IF NOT EXISTS crimes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT,
-        crime_type TEXT,
         description TEXT,
-        occurred_at TEXT,
+        date TEXT,
+        location TEXT,
+        suspect_id INTEGER,
+        officer TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+    )''')
+
     conn.commit()
     conn.close()
 
-def get_connection():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-# -----------------------
+# =========================
+# GLOBAL STYLES
+# =========================
 def load_css():
     st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-
-    html, body, .stApp {
-      font-family: 'Roboto', sans-serif;
-      background: linear-gradient(135deg,#f4f7ff 0%, #f7eefb 100%);
-    }
-
-    .title {
-      text-align:center;
-      font-size:26px;
-      font-weight:700;
-      color:#0f172a;
-      margin-bottom:18px;
-    }
-
-    /* Card */
-    .card {
-      border-radius:18px;
-      padding:26px 18px;
-      text-align:center;
-      color:#0f172a;
-      box-shadow: 0 8px 22px rgba(15,23,42,0.08);
-      transition: transform .18s ease, box-shadow .18s ease;
-      margin-bottom:14px;
-      display:block;
-    }
-    .card:hover { transform: translateY(-6px); box-shadow: 0 14px 36px rgba(15,23,42,0.12); }
-    .card-icon { font-size:34px; margin-bottom:10px; display:block; }
-    .card-label { font-size:15px; font-weight:600; }
-
-    /* Buttons / Form inputs */
-    .stButton>button { border-radius:12px; padding:10px 18px; }
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input {
-      border-radius:10px;
-    }
-
-    /* Small image placeholder */
-    .img-placeholder {
-      width:120px;
-      height:120px;
-      border-radius:10px;
-      background:#f1f5f9;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:#94a3b8;
-    }
-
-    /* Responsive grid wrapper for dashboard cards */
-    .dashboard-row { display:flex; gap:18px; flex-wrap:wrap; justify-content:center; margin-bottom:14px; }
-    .dashboard-col { flex: 1 1 240px; max-width: 320px; }
-
-    </style>
+        <style>
+        .stApp {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            font-family: 'Roboto', sans-serif;
+        }
+        .card {
+            background: white;
+            color: #333;
+            padding: 1.2rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: all 0.2s ease-in-out;
+            text-align: center;
+            font-size: 1.1rem;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        h1, h2, h3 {
+            color: #f5f5f5 !important;
+            font-weight: 500;
+        }
+        .suspect-img {
+            border-radius: 12px;
+            margin: 5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            transition: transform 0.2s;
+        }
+        .suspect-img:hover { transform: scale(1.05); }
+        a { text-decoration: none; color: #1e3c72; }
+        </style>
     """, unsafe_allow_html=True)
 
-# -----------------------
-def dashboard_card(icon, label, page, gradient):
-    html = f"""
-    <a href='?page={page}' style="text-decoration:none;">
-      <div class="card" style="background:{gradient};">
-        <div class="card-icon">{icon}</div>
-        <div class="card-label">{label}</div>
-      </div>
-    </a>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
-# -----------------------
-def home_page():
+# =========================
+# PAGES
+# =========================
+def home():
     load_css()
-    st.markdown('<div class="title">🚔 Police Record Management System</div>', unsafe_allow_html=True)
+    st.markdown("<h1>🚔 Police Record Management System</h1>", unsafe_allow_html=True)
 
-    st.markdown('<div class="dashboard-row">', unsafe_allow_html=True)
-    st.markdown('<div class="dashboard-col">', unsafe_allow_html=True)
-    dashboard_card("👤", "Suspects", "suspects", "linear-gradient(135deg,#bbdefb,#90caf9)")
-    st.markdown('</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown('<div class="card">👤 <a href="?page=suspects">Suspects</a></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div class="card">⚖️ <a href="?page=crimes">Crimes</a></div>', unsafe_allow_html=True)
+    with col3:
+        st.markdown('<div class="card">📊 <a href="?page=reports">Reports</a></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="dashboard-col">', unsafe_allow_html=True)
-    dashboard_card("⚖️", "Crimes", "crimes", "linear-gradient(135deg,#f8bbd0,#f48fb1)")
-    st.markdown('</div>', unsafe_allow_html=True)
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        st.markdown('<div class="card">👮 <a href="?page=officers">Officers</a></div>', unsafe_allow_html=True)
+    with col5:
+        st.markdown('<div class="card">🏛️ <a href="?page=cases">Cases</a></div>', unsafe_allow_html=True)
+    with col6:
+        st.markdown('<div class="card">⚙️ <a href="?page=settings">Settings</a></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="dashboard-col">', unsafe_allow_html=True)
-    dashboard_card("📊", "Reports", "reports", "linear-gradient(135deg,#c8e6c9,#a5d6a7)")
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="dashboard-row">', unsafe_allow_html=True)
-    st.markdown('<div class="dashboard-col">', unsafe_allow_html=True)
-    dashboard_card("👮", "Officers", "officers", "linear-gradient(135deg,#ffe0b2,#ffcc80)")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="dashboard-col">', unsafe_allow_html=True)
-    dashboard_card("🏛️", "Cases", "cases", "linear-gradient(135deg,#d1c4e9,#b39ddb)")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="dashboard-col">', unsafe_allow_html=True)
-    dashboard_card("⚙️", "Settings", "settings", "linear-gradient(135deg,#f0f4c3,#e6ee9c)")
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# -----------------------
 def suspects_page():
     load_css()
-    st.markdown('<div class="title">👤 Suspect Biodata</div>', unsafe_allow_html=True)
+    st.markdown("<h2>👤 Suspect Biodata</h2>", unsafe_allow_html=True)
 
-    # Form: create suspect
-    with st.form("suspect_form", clear_on_submit=False):
+    with st.form("suspect_form"):
         col1, col2 = st.columns(2)
         with col1:
             name = st.text_input("Full Name")
-            dob = st.date_input("Date of Birth", value=date(1990,1,1))
+            dob = st.date_input("Date of Birth")
             gender = st.selectbox("Gender", ["Male", "Female", "Other"])
         with col2:
-            address = st.text_area("Address")
             phone = st.text_input("Phone Number")
             occupation = st.text_input("Occupation")
-        st.markdown("### 📸 Upload Photos (optional)")
-        f1, f2, f3 = st.columns(3)
-        with f1:
-            front_img = st.file_uploader("Front view", type=["jpg","jpeg","png"], key="front")
-        with f2:
-            left_img = st.file_uploader("Left view", type=["jpg","jpeg","png"], key="left")
-        with f3:
-            right_img = st.file_uploader("Right view", type=["jpg","jpeg","png"], key="right")
+            address = st.text_area("Address")
 
-        submitted = st.form_submit_button("Save Suspect")
+        st.markdown("### 📸 Upload Suspect Photos")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            front_img = st.file_uploader("Front View", type=["jpg","jpeg","png"], key="front")
+        with col2:
+            left_img = st.file_uploader("Left View", type=["jpg","jpeg","png"], key="left")
+        with col3:
+            right_img = st.file_uploader("Right View", type=["jpg","jpeg","png"], key="right")
+
+        submitted = st.form_submit_button("💾 Save Suspect")
+
         if submitted:
-            if not name:
-                st.error("Name is required.")
-            else:
-                conn = get_connection(); c = conn.cursor()
-                c.execute("""INSERT INTO suspects
-                    (name, dob, gender, address, phone, occupation)
-                    VALUES (?,?,?,?,?,?)""",
-                          (name, dob.isoformat(), gender, address, phone, occupation))
-                suspect_id = c.lastrowid
-                conn.commit()
+            conn = get_connection()
+            c = conn.cursor()
+            c.execute("INSERT INTO suspects (name,dob,gender,address,phone,occupation) VALUES (?,?,?,?,?,?)",
+                      (name, dob, gender, address, phone, occupation))
+            suspect_id = c.lastrowid
 
-                # save photos and update DB
-                front_path = left_path = right_path = None
-                if front_img:
-                    ext = os.path.splitext(front_img.name)[1]
-                    front_path = os.path.join(PHOTOS_DIR, f"{suspect_id}_front{ext}")
-                    with open(front_path,"wb") as f: f.write(front_img.getbuffer())
-                if left_img:
-                    ext = os.path.splitext(left_img.name)[1]
-                    left_path = os.path.join(PHOTOS_DIR, f"{suspect_id}_left{ext}")
-                    with open(left_path,"wb") as f: f.write(left_img.getbuffer())
-                if right_img:
-                    ext = os.path.splitext(right_img.name)[1]
-                    right_path = os.path.join(PHOTOS_DIR, f"{suspect_id}_right{ext}")
-                    with open(right_path,"wb") as f: f.write(right_img.getbuffer())
+            os.makedirs("photos", exist_ok=True)
+            if front_img:
+                with open(f"photos/{suspect_id}_front.jpg","wb") as f: f.write(front_img.getbuffer())
+            if left_img:
+                with open(f"photos/{suspect_id}_left.jpg","wb") as f: f.write(left_img.getbuffer())
+            if right_img:
+                with open(f"photos/{suspect_id}_right.jpg","wb") as f: f.write(right_img.getbuffer())
 
-                if any([front_path, left_path, right_path]):
-                    c.execute("""UPDATE suspects SET photo_front=?, photo_left=?, photo_right=? WHERE id=?""",
-                              (front_path, left_path, right_path, suspect_id))
-                    conn.commit()
-                conn.close()
-                st.success(f"✅ Suspect '{name}' saved (id={suspect_id}).")
+            conn.commit()
+            conn.close()
+            st.success("✅ Suspect saved with photos!")
 
-    # ------------------- Gallery + Search & Filters -------------------
-    st.markdown("## 🔍 Search & Filter Suspects")
-    g1, g2 = st.columns([2,1])
-    with g1:
-        search_name = st.text_input("Search by name (partial)")
-    with g2:
-        filter_gender = st.selectbox("Gender", ["All","Male","Female","Other"])
-    col1, col2 = st.columns(2)
-    with col1:
-        dob_from = st.date_input("DOB from", value=date(1900,1,1))
-    with col2:
-        dob_to = st.date_input("DOB to", value=date.today())
-
-    # Build query
-    q = """SELECT id, name, dob, gender, phone, occupation, photo_front, photo_left, photo_right, created_at
-           FROM suspects WHERE 1=1 """
-    params = []
-    if search_name:
-        q += " AND name LIKE ?"
-        params.append(f"%{search_name}%")
-    if filter_gender != "All":
-        q += " AND gender = ?"
-        params.append(filter_gender)
-    if dob_from and dob_to:
-        q += " AND date(dob) BETWEEN ? AND ?"
-        params.append(dob_from.isoformat()); params.append(dob_to.isoformat())
-    q += " ORDER BY created_at DESC"
-
-    conn = get_connection(); cur = conn.cursor()
-    rows = cur.execute(q, params).fetchall()
-    conn.close()
-
-    if not rows:
-        st.info("No suspects found for the selected filters.")
-    else:
-        for r in rows:
-            sid, name, dob, gender, phone, occupation, p_front, p_left, p_right, created_at = r
-            c1, c2 = st.columns([1,4])
-            if p_front and os.path.exists(p_front):
-                c1.image(p_front, width=120)
-            else:
-                c1.markdown('<div class="img-placeholder">No image</div>', unsafe_allow_html=True)
-            info_md = f"**{name}**  \n\n{gender} • {occupation}  \n\nDOB: {dob}  \n\nPhone: {phone}  \n\nAdded: {created_at}"
-            c2.markdown(info_md)
-
-# -----------------------
-def crimes_page():
-    load_css()
-    st.markdown('<div class="title">⚖️ Crime Records</div>', unsafe_allow_html=True)
-
-    with st.form("crime_form"):
-        title = st.text_input("Short title (optional)")
-        crime_type = st.text_input("Crime Type (e.g. Robbery, Fraud)")
-        occurred_at = st.date_input("Date occurred", value=date.today())
-        description = st.text_area("Description / details")
-        submitted = st.form_submit_button("Save Crime")
-        if submitted:
-            if not crime_type:
-                st.error("Crime type is required.")
-            else:
-                conn = get_connection(); c = conn.cursor()
-                c.execute("""INSERT INTO crimes (title, crime_type, description, occurred_at)
-                             VALUES (?,?,?,?)""",
-                          (title, crime_type, description, occurred_at.isoformat()))
-                conn.commit(); conn.close()
-                st.success("✅ Crime saved.")
-
-    st.markdown("## 🔍 Search & Filter Crimes")
-    search_crime = st.text_input("Search by type or keyword")
-    cs1, cs2 = st.columns(2)
-    with cs1:
-        crime_from = st.date_input("Crime from", value=date(2000,1,1))
-    with cs2:
-        crime_to = st.date_input("Crime to", value=date.today())
-
-    q = "SELECT id, title, crime_type, description, occurred_at, created_at FROM crimes WHERE 1=1 "
-    params = []
-    if search_crime:
-        q += " AND (crime_type LIKE ? OR description LIKE ? OR title LIKE ?)"
-        params.extend([f"%{search_crime}%", f"%{search_crime}%", f"%{search_crime}%"])
-    if crime_from and crime_to:
-        q += " AND date(occurred_at) BETWEEN ? AND ?"
-        params.append(crime_from.isoformat()); params.append(crime_to.isoformat())
-    q += " ORDER BY created_at DESC"
-
-    conn = get_connection(); cur = conn.cursor()
-    rows = cur.execute(q, params).fetchall()
-    conn.close()
-
-    if not rows:
-        st.info("No crimes found for the selected filters.")
-    else:
-        for r in rows:
-            cid, title, ctype, desc, occurred_at, created_at = r
-            st.markdown(f"**{title or ctype}** — {ctype}  \n\n{desc[:300]}  \n\nOccurred: {occurred_at} • Added: {created_at}")
-
-# -----------------------
-def reports_page():
-    load_css()
-    st.markdown('<div class="title">📊 Reports</div>', unsafe_allow_html=True)
+    # Gallery + Search
+    st.markdown("### 🔎 Search Suspects")
+    search = st.text_input("Search by name, phone, or occupation")
 
     conn = get_connection()
-    try:
-        df_counts = pd.read_sql_query("SELECT crime_type, COUNT(*) as cnt FROM crimes GROUP BY crime_type", conn)
-    except Exception:
-        df_counts = pd.DataFrame(columns=["crime_type","cnt"])
-    total_suspects = conn.execute("SELECT COUNT(*) FROM suspects").fetchone()[0]
-    total_crimes = conn.execute("SELECT COUNT(*) FROM crimes").fetchone()[0]
+    c = conn.cursor()
+    if search:
+        c.execute("SELECT * FROM suspects WHERE name LIKE ? OR phone LIKE ? OR occupation LIKE ? ORDER BY created_at DESC",
+                  (f"%{search}%", f"%{search}%", f"%{search}%"))
+    else:
+        c.execute("SELECT * FROM suspects ORDER BY created_at DESC")
+    rows = c.fetchall()
     conn.close()
 
-    st.metric("Total Suspects", total_suspects)
-    st.metric("Total Crimes", total_crimes)
+    for row in rows:
+        suspect_id, name, dob, gender, address, phone, occupation, created_at = row
+        st.markdown(f'<div class="card"><b>{name}</b> — {gender}, {occupation}<br>'
+                    f'📅 {dob} | 📞 {phone} | 🏠 {address}</div>', unsafe_allow_html=True)
+        img_row = st.columns(3)
+        for i, pos in enumerate(["front", "left", "right"]):
+            path = f"photos/{suspect_id}_{pos}.jpg"
+            if os.path.exists(path):
+                img_row[i].image(path, width=150, caption=pos.capitalize())
 
-    if not df_counts.empty:
-        fig = px.bar(df_counts, x="crime_type", y="cnt", title="Crimes by Type")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No crime data to chart yet.")
-
-    # CSV export example
-    export_conn = get_connection()
-    df_sus = pd.read_sql_query("SELECT * FROM suspects ORDER BY created_at DESC", export_conn)
-    df_cr = pd.read_sql_query("SELECT * FROM crimes ORDER BY created_at DESC", export_conn)
-    export_conn.close()
-    if not df_sus.empty:
-        csv_s = df_sus.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Suspects CSV", csv_s, file_name="suspects.csv", mime="text/csv")
-    if not df_cr.empty:
-        csv_c = df_cr.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Crimes CSV", csv_c, file_name="crimes.csv", mime="text/csv")
-
-# -----------------------
-def misc_pages(page):
+def crimes_page():
     load_css()
-    st.markdown(f"<h2 style='text-align:center'>{page.title()}</h2>", unsafe_allow_html=True)
-    st.info("This section is a placeholder. We can add Officers / Cases / Settings screens on request.")
+    st.markdown("<h2>⚖️ Crimes</h2>", unsafe_allow_html=True)
+    with st.form("crime_form"):
+        title = st.text_input("Crime Title")
+        description = st.text_area("Description")
+        date = st.date_input("Date of Incident")
+        location = st.text_input("Location")
+        suspect_id = st.number_input("Suspect ID (if known)", step=1, min_value=0)
+        officer = st.text_input("Officer in Charge")
+        submitted = st.form_submit_button("💾 Save Crime")
 
-# -----------------------
+        if submitted:
+            conn = get_connection()
+            c = conn.cursor()
+            c.execute("INSERT INTO crimes (title,description,date,location,suspect_id,officer) VALUES (?,?,?,?,?,?)",
+                      (title, description, date, location, suspect_id, officer))
+            conn.commit()
+            conn.close()
+            st.success("✅ Crime record saved!")
+
+def reports_page():
+    load_css()
+    st.markdown("<h2>📊 Reports Dashboard</h2>", unsafe_allow_html=True)
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    # Totals
+    c.execute("SELECT COUNT(*) FROM suspects")
+    total_suspects = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM crimes")
+    total_crimes = c.fetchone()[0]
+
+    # Gender distribution
+    c.execute("SELECT gender, COUNT(*) FROM suspects GROUP BY gender")
+    gender_data = c.fetchall()
+
+    # Crimes by officer
+    c.execute("SELECT officer, COUNT(*) FROM crimes GROUP BY officer")
+    crime_by_officer = c.fetchall()
+
+    conn.close()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f'<div class="card">👤 Total Suspects: {total_suspects}</div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="card">⚖️ Total Crimes: {total_crimes}</div>', unsafe_allow_html=True)
+
+    st.markdown("### 👥 Gender Distribution of Suspects")
+    if gender_data:
+        labels = [row[0] for row in gender_data]
+        values = [row[1] for row in gender_data]
+        fig, ax = plt.subplots()
+        ax.pie(values, labels=labels, autopct='%1.1f%%', startangle=90)
+        ax.axis('equal')
+        st.pyplot(fig)
+    else:
+        st.info("No suspects available yet.")
+
+    st.markdown("### 👮 Crimes by Officer")
+    if crime_by_officer:
+        officers = [row[0] for row in crime_by_officer]
+        counts = [row[1] for row in crime_by_officer]
+        fig, ax = plt.subplots()
+        ax.bar(officers, counts)
+        ax.set_ylabel("Number of Crimes")
+        ax.set_xlabel("Officer")
+        ax.set_title("Crimes Assigned per Officer")
+        st.pyplot(fig)
+    else:
+        st.info("No crimes available yet.")
+
+# =========================
+# ROUTER
+# =========================
+PAGES = {
+    "home": home,
+    "suspects": suspects_page,
+    "crimes": crimes_page,
+    "reports": reports_page,
+}
+
 def main():
     init_db()
-    # set default
-    if "page" not in st.session_state:
-        st.session_state.page = "home"
-
-    # sync page with query params if present
-    qp = st.experimental_get_query_params()
-    if "page" in qp:
-        st.session_state.page = qp.get("page")[0]
-
-    page = st.session_state.page or "home"
-
-    if page == "home":
-        home_page()
-    elif page == "suspects":
-        suspects_page()
-    elif page == "crimes":
-        crimes_page()
-    elif page == "reports":
-        reports_page()
-    elif page in ("officers","cases","settings"):
-        misc_pages(page)
+    query_params = st.query_params
+    page = query_params.get("page", ["home"])[0]
+    if page in PAGES:
+        PAGES[page]()
     else:
-        st.error("Unknown page. Returning to home.")
-        st.experimental_set_query_params(page="home")
-        st.session_state.page = "home"
-
-    # back to home link
-    if page != "home":
-        st.markdown("<br><a href='?page=home'>⬅️ Back to Home</a>", unsafe_allow_html=True)
+        home()
 
 if __name__ == "__main__":
     main()
